@@ -170,16 +170,27 @@ template void AccumulatedTopHessianSSE::addPoint<2>(EFPoint* p, EnergyFunctional
 
 void AccumulatedTopHessianSSE::stitchDouble(MatXX &H, VecX &b, EnergyFunctional const * const EF, bool usePrior, bool useDelta, int tid)
 {
+#if USE_CPARS
 	H = MatXX::Zero(nframes[tid]*8+CPARS, nframes[tid]*8+CPARS);
 	b = VecX::Zero(nframes[tid]*8+CPARS);
+#else
+    H = MatXX::Zero(nframes[tid]*8, nframes[tid]*8);
+    b = VecX::Zero(nframes[tid]*8);
+#endif
 
 
 	for(int h=0;h<nframes[tid];h++)
 		for(int t=0;t<nframes[tid];t++)
 		{
+#if USE_CPARS
 			int hIdx = CPARS+h*8;
 			int tIdx = CPARS+t*8;
 			int aidx = h+nframes[tid]*t;
+#else
+            int hIdx = h*8;
+            int tIdx = t*8;
+            int aidx = h+nframes[tid]*t;
+#endif
 
 
 
@@ -189,6 +200,7 @@ void AccumulatedTopHessianSSE::stitchDouble(MatXX &H, VecX &b, EnergyFunctional 
 			MatPCPC accH = acc[tid][aidx].H.cast<double>();
 
 
+#if USE_CPARS
 			H.block<8,8>(hIdx, hIdx).noalias() += EF->adHost[aidx] * accH.block<8,8>(CPARS,CPARS) * EF->adHost[aidx].transpose();
 
 			H.block<8,8>(tIdx, tIdx).noalias() += EF->adTarget[aidx] * accH.block<8,8>(CPARS,CPARS) * EF->adTarget[aidx].transpose();
@@ -206,12 +218,28 @@ void AccumulatedTopHessianSSE::stitchDouble(MatXX &H, VecX &b, EnergyFunctional 
 			b.segment<8>(tIdx).noalias() += EF->adTarget[aidx] * accH.block<8,1>(CPARS,8+CPARS);
 
 			b.head<CPARS>().noalias() += accH.block<CPARS,1>(0,8+CPARS);
+#else
+            H.block<8,8>(hIdx, hIdx).noalias() += EF->adHost[aidx] * accH.block<8,8>(CPARS,CPARS) * EF->adHost[aidx].transpose();
+
+            H.block<8,8>(tIdx, tIdx).noalias() += EF->adTarget[aidx] * accH.block<8,8>(CPARS,CPARS) * EF->adTarget[aidx].transpose();
+
+            H.block<8,8>(hIdx, tIdx).noalias() += EF->adHost[aidx] * accH.block<8,8>(CPARS,CPARS) * EF->adTarget[aidx].transpose();
+
+            H.block<8,CPARS>(hIdx,0).noalias() += EF->adHost[aidx] * accH.block<8,CPARS>(CPARS,0);
+
+            H.block<8,CPARS>(tIdx,0).noalias() += EF->adTarget[aidx] * accH.block<8,CPARS>(CPARS,0);
+
+            b.segment<8>(hIdx).noalias() += EF->adHost[aidx] * accH.block<8,1>(CPARS,8+CPARS);
+
+            b.segment<8>(tIdx).noalias() += EF->adTarget[aidx] * accH.block<8,1>(CPARS,8+CPARS);
+#endif
 		}
 
 
 	// ----- new: copy transposed parts.
 	for(int h=0;h<nframes[tid];h++)
 	{
+#if USE_CPARS
 		int hIdx = CPARS+h*8;
 		H.block<CPARS,8>(0,hIdx).noalias() = H.block<8,CPARS>(hIdx,0).transpose();
 
@@ -221,11 +249,23 @@ void AccumulatedTopHessianSSE::stitchDouble(MatXX &H, VecX &b, EnergyFunctional 
 			H.block<8,8>(hIdx, tIdx).noalias() += H.block<8,8>(tIdx, hIdx).transpose();
 			H.block<8,8>(tIdx, hIdx).noalias() = H.block<8,8>(hIdx, tIdx).transpose();
 		}
+#else
+        int hIdx = h*8;
+//        H.block<CPARS,8>(0,hIdx).noalias() = H.block<8,CPARS>(hIdx,0).transpose();
+
+        for(int t=h+1;t<nframes[tid];t++)
+        {
+            int tIdx = t*8;
+            H.block<8,8>(hIdx, tIdx).noalias() += H.block<8,8>(tIdx, hIdx).transpose();
+            H.block<8,8>(tIdx, hIdx).noalias() = H.block<8,8>(hIdx, tIdx).transpose();
+        }
+#endif
 	}
 
 
 	if(usePrior)
 	{
+#if USE_CPARS
 		assert(useDelta);
 		H.diagonal().head<CPARS>() += EF->cPrior;
 		b.head<CPARS>() += EF->cPrior.cwiseProduct(EF->cDeltaF.cast<double>());
@@ -234,6 +274,14 @@ void AccumulatedTopHessianSSE::stitchDouble(MatXX &H, VecX &b, EnergyFunctional 
             H.diagonal().segment<8>(CPARS+h*8) += EF->frames[h]->prior;
             b.segment<8>(CPARS+h*8) += EF->frames[h]->prior.cwiseProduct(EF->frames[h]->delta_prior);
 		}
+#else
+        assert(useDelta);
+        for(int h=0;h<nframes[tid];h++)
+        {
+            H.diagonal().segment<8>(h*8) += EF->frames[h]->prior;
+            b.segment<8>(h*8) += EF->frames[h]->prior.cwiseProduct(EF->frames[h]->delta_prior);
+        }
+#endif
 	}
 }
 
@@ -252,10 +300,15 @@ void AccumulatedTopHessianSSE::stitchDoubleInternal(
 		int h = k%nframes[0];
 		int t = k/nframes[0];
 
+#if USE_CPARS
 		int hIdx = CPARS+h*8;
 		int tIdx = CPARS+t*8;
-		int aidx = h+nframes[0]*t;
+#else
+        int hIdx = h*8;
+        int tIdx = t*8;
+#endif
 
+		int aidx = h+nframes[0]*t;
 		assert(aidx == k);
 
 		MatPCPC accH = MatPCPC::Zero();
@@ -267,6 +320,7 @@ void AccumulatedTopHessianSSE::stitchDoubleInternal(
 			accH += acc[tid2][aidx].H.cast<double>();
 		}
 
+#if USE_CPARS
 		H[tid].block<8,8>(hIdx, hIdx).noalias() += EF->adHost[aidx] * accH.block<8,8>(CPARS,CPARS) * EF->adHost[aidx].transpose();
 
 		H[tid].block<8,8>(tIdx, tIdx).noalias() += EF->adTarget[aidx] * accH.block<8,8>(CPARS,CPARS) * EF->adTarget[aidx].transpose();
@@ -284,6 +338,21 @@ void AccumulatedTopHessianSSE::stitchDoubleInternal(
 		b[tid].segment<8>(tIdx).noalias() += EF->adTarget[aidx] * accH.block<8,1>(CPARS,CPARS+8);
 
 		b[tid].head<CPARS>().noalias() += accH.block<CPARS,1>(0,CPARS+8);
+#else
+        H[tid].block<8,8>(hIdx, hIdx).noalias() += EF->adHost[aidx] * accH.block<8,8>(CPARS,CPARS) * EF->adHost[aidx].transpose();
+
+        H[tid].block<8,8>(tIdx, tIdx).noalias() += EF->adTarget[aidx] * accH.block<8,8>(CPARS,CPARS) * EF->adTarget[aidx].transpose();
+
+        H[tid].block<8,8>(hIdx, tIdx).noalias() += EF->adHost[aidx] * accH.block<8,8>(CPARS,CPARS) * EF->adTarget[aidx].transpose();
+
+//        H[tid].block<8,CPARS>(hIdx,0).noalias() += EF->adHost[aidx] * accH.block<8,CPARS>(CPARS,0);
+
+//        H[tid].block<8,CPARS>(tIdx,0).noalias() += EF->adTarget[aidx] * accH.block<8,CPARS>(CPARS,0);
+
+        b[tid].segment<8>(hIdx).noalias() += EF->adHost[aidx] * accH.block<8,1>(CPARS,CPARS+8);
+
+        b[tid].segment<8>(tIdx).noalias() += EF->adTarget[aidx] * accH.block<8,1>(CPARS,CPARS+8);
+#endif
 
 	}
 
@@ -291,6 +360,7 @@ void AccumulatedTopHessianSSE::stitchDoubleInternal(
 	// only do this on one thread.
 	if(min==0 && usePrior)
 	{
+#if USE_CPARS
 		H[tid].diagonal().head<CPARS>() += EF->cPrior;
 		b[tid].head<CPARS>() += EF->cPrior.cwiseProduct(EF->cDeltaF.cast<double>());
 		for(int h=0;h<nframes[tid];h++)
@@ -299,6 +369,14 @@ void AccumulatedTopHessianSSE::stitchDoubleInternal(
             b[tid].segment<8>(CPARS+h*8) += EF->frames[h]->prior.cwiseProduct(EF->frames[h]->delta_prior);
 
 		}
+#else
+        for(int h=0;h<nframes[tid];h++)
+        {
+            H[tid].diagonal().segment<8>(h*8) += EF->frames[h]->prior;
+            b[tid].segment<8>(h*8) += EF->frames[h]->prior.cwiseProduct(EF->frames[h]->delta_prior);
+
+        }
+#endif
 	}
 }
 

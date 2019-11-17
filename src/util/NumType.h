@@ -52,6 +52,7 @@ typedef Sophus::SO3d SO3;
 
 
 #define CPARS 4
+#define USE_CPARS 0
 
 
 typedef Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic> MatXX;

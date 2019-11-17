@@ -118,7 +118,7 @@ double PointFrameResidual::linearize(CalibHessian* HCalib)
 
 
 
-
+#if USE_CPARS
 		// diff calib
 		d_C_x[2] = drescale*(PRE_RTll_0(2,0)*u-PRE_RTll_0(0,0));
 		d_C_x[3] = HCalib->fxl() * drescale*(PRE_RTll_0(2,1)*u-PRE_RTll_0(0,1)) * HCalib->fyli();
@@ -139,6 +139,10 @@ double PointFrameResidual::linearize(CalibHessian* HCalib)
 		d_C_y[1] = (d_C_y[1]+v)*SCALE_F;
 		d_C_y[2] *= SCALE_C;
 		d_C_y[3] = (d_C_y[3]+1)*SCALE_C;
+#else
+        d_C_x.setZero();
+        d_C_y.setZero();
+#endif
 
 
 		d_xi_x[0] = new_idepth*HCalib->fxl();

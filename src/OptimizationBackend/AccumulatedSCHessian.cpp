@@ -92,9 +92,15 @@ void AccumulatedSCHessianSSE::stitchDoubleInternal(
 		int i = k%nf;
 		int j = k/nf;
 
+#if USE_CPARS
 		int iIdx = CPARS+i*8;
 		int jIdx = CPARS+j*8;
 		int ijIdx = i+nf*j;
+#else
+        int iIdx = i*8;
+        int jIdx = j*8;
+        int ijIdx = i+nf*j;
+#endif
 
 		Mat8C Hpc = Mat8C::Zero();
 		Vec8 bp = Vec8::Zero();
@@ -107,8 +113,10 @@ void AccumulatedSCHessianSSE::stitchDoubleInternal(
 			bp += accEB[tid2][ijIdx].A1m.cast<double>();
 		}
 
+#if USE_CPARS
 		H[tid].block<8,CPARS>(iIdx,0) += EF->adHost[ijIdx] * Hpc;
 		H[tid].block<8,CPARS>(jIdx,0) += EF->adTarget[ijIdx] * Hpc;
+#endif
 		b[tid].segment<8>(iIdx) += EF->adHost[ijIdx] * bp;
 		b[tid].segment<8>(jIdx) += EF->adTarget[ijIdx] * bp;
 
@@ -116,7 +124,11 @@ void AccumulatedSCHessianSSE::stitchDoubleInternal(
 
 		for(int k=0;k<nf;k++)
 		{
+#if USE_CPARS
 			int kIdx = CPARS+k*8;
+#else
+            int kIdx = k*8;
+#endif
 			int ijkIdx = ijIdx + k*nframes2;
 			int ikIdx = i+nf*k;
 
@@ -142,8 +154,10 @@ void AccumulatedSCHessianSSE::stitchDoubleInternal(
 		{
 			accHcc[tid2].finish();
 			accbc[tid2].finish();
+#if USE_CPARS
 			H[tid].topLeftCorner<CPARS,CPARS>() += accHcc[tid2].A1m.cast<double>();
 			b[tid].head<CPARS>() += accbc[tid2].A1m.cast<double>();
+#endif
 		}
 	}
 
@@ -162,16 +176,27 @@ void AccumulatedSCHessianSSE::stitchDouble(MatXX &H, VecX &b, EnergyFunctional c
 	int nf = nframes[0];
 	int nframes2 = nf*nf;
 
+#if USE_CPARS
 	H = MatXX::Zero(nf*8+CPARS, nf*8+CPARS);
 	b = VecX::Zero(nf*8+CPARS);
+#else
+    H = MatXX::Zero(nf*8, nf*8);
+    b = VecX::Zero(nf*8);
+#endif
 
 
 	for(int i=0;i<nf;i++)
 		for(int j=0;j<nf;j++)
 		{
+#if USE_CPARS
 			int iIdx = CPARS+i*8;
 			int jIdx = CPARS+j*8;
 			int ijIdx = i+nf*j;
+#else
+            int iIdx = i*8;
+            int jIdx = j*8;
+            int ijIdx = i+nf*j;
+#endif
 
 			accE[tid][ijIdx].finish();
 			accEB[tid][ijIdx].finish();
@@ -179,15 +204,21 @@ void AccumulatedSCHessianSSE::stitchDouble(MatXX &H, VecX &b, EnergyFunctional c
 			Mat8C accEM = accE[tid][ijIdx].A1m.cast<double>();
 			Vec8 accEBV = accEB[tid][ijIdx].A1m.cast<double>();
 
+#if USE_CPARS
 			H.block<8,CPARS>(iIdx,0) += EF->adHost[ijIdx] * accEM;
 			H.block<8,CPARS>(jIdx,0) += EF->adTarget[ijIdx] * accEM;
+#endif
 
 			b.segment<8>(iIdx) += EF->adHost[ijIdx] * accEBV;
 			b.segment<8>(jIdx) += EF->adTarget[ijIdx] * accEBV;
 
 			for(int k=0;k<nf;k++)
 			{
+#if USE_CPARS
 				int kIdx = CPARS+k*8;
+#else
+                int kIdx = k*8;
+#endif
 				int ijkIdx = ijIdx + k*nframes2;
 				int ikIdx = i+nf*k;
 
@@ -207,6 +238,7 @@ void AccumulatedSCHessianSSE::stitchDouble(MatXX &H, VecX &b, EnergyFunctional c
 
 	accHcc[tid].finish();
 	accbc[tid].finish();
+#if USE_CPARS
 	H.topLeftCorner<CPARS,CPARS>() = accHcc[tid].A1m.cast<double>();
 	b.head<CPARS>() = accbc[tid].A1m.cast<double>();
 
@@ -216,6 +248,7 @@ void AccumulatedSCHessianSSE::stitchDouble(MatXX &H, VecX &b, EnergyFunctional c
 		int hIdx = CPARS+h*8;
 		H.block<CPARS,8>(0,hIdx).noalias() = H.block<8,CPARS>(hIdx,0).transpose();
 	}
+#endif
 }
 
 }

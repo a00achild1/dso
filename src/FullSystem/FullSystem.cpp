@@ -81,6 +81,11 @@ FullSystem::FullSystem()
 		calibLog->open("logs/calibLog.txt", std::ios::trunc | std::ios::out);
 		calibLog->precision(12);
 
+        calibLogK = new std::ofstream();
+        calibLogK->open("logs/calibLogK.csv", std::ios::trunc | std::ios::out);
+        (*calibLogK) << "fx,fy,cx,fy" << std::endl;
+        calibLogK->precision(12);
+
 		numsLog = new std::ofstream();
 		numsLog->open("logs/numsLog.txt", std::ios::trunc | std::ios::out);
 		numsLog->precision(10);
@@ -124,6 +129,7 @@ FullSystem::FullSystem()
 		eigenAllLog=0;
 		numsLog=0;
 		calibLog=0;
+        calibLogK=0;
 	}
 
 	assert(retstat!=293847);
@@ -182,6 +188,7 @@ FullSystem::~FullSystem()
 	if(setting_logStuff)
 	{
 		calibLog->close(); delete calibLog;
+        calibLogK->close(); delete calibLogK;
 		numsLog->close(); delete numsLog;
 		coarseTrackingLog->close(); delete coarseTrackingLog;
 		//errorsLog->close(); delete errorsLog;

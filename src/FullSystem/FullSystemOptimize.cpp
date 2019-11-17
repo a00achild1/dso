@@ -230,7 +230,9 @@ bool FullSystem::doStepFromBackup(float stepfacC,float stepfacT,float stepfacR,f
 
 	if(setting_solverMode & SOLVER_MOMENTUM)
 	{
+#if USE_CPARS
 		Hcalib.setValue(Hcalib.value_backup + Hcalib.step);
+#endif
 		for(FrameHessian* fh : frameHessians)
 		{
 			Vec10 step = fh->step;
@@ -256,7 +258,9 @@ bool FullSystem::doStepFromBackup(float stepfacC,float stepfacT,float stepfacR,f
 	}
 	else
 	{
+#if USE_CPARS
 		Hcalib.setValue(Hcalib.value_backup + stepfacC*Hcalib.step);
+#endif
 		for(FrameHessian* fh : frameHessians)
 		{
 			fh->setState(fh->state_backup + pstepfac.cwiseProduct(fh->step));
@@ -317,8 +321,10 @@ void FullSystem::backupState(bool backupLastStep)
 	{
 		if(backupLastStep)
 		{
+#if USE_CPARS
 			Hcalib.step_backup = Hcalib.step;
 			Hcalib.value_backup = Hcalib.value;
+#endif
 			for(FrameHessian* fh : frameHessians)
 			{
 				fh->step_backup = fh->step;
@@ -332,8 +338,10 @@ void FullSystem::backupState(bool backupLastStep)
 		}
 		else
 		{
+#if USE_CPARS
 			Hcalib.step_backup.setZero();
 			Hcalib.value_backup = Hcalib.value;
+#endif
 			for(FrameHessian* fh : frameHessians)
 			{
 				fh->step_backup.setZero();
@@ -348,7 +356,9 @@ void FullSystem::backupState(bool backupLastStep)
 	}
 	else
 	{
+#if USE_CPARS
 		Hcalib.value_backup = Hcalib.value;
+#endif
 		for(FrameHessian* fh : frameHessians)
 		{
 			fh->state_backup = fh->get_state();
@@ -361,7 +371,9 @@ void FullSystem::backupState(bool backupLastStep)
 // sets linearization point.
 void FullSystem::loadSateBackup()
 {
+#if USE_CPARS
 	Hcalib.setValue(Hcalib.value_backup);
+#endif
 	for(FrameHessian* fh : frameHessians)
 	{
 		fh->setState(fh->state_backup);
@@ -468,7 +480,11 @@ float FullSystem::optimize(int mnumOptIts)
 
 	double lambda = 1e-1;
 	float stepsize=1;
+#if USE_CPARS
 	VecX previousX = VecX::Constant(CPARS+ 8*frameHessians.size(), NAN);
+#else
+    VecX previousX = VecX::Constant(8*frameHessians.size(), NAN);
+#endif
 	for(int iteration=0;iteration<mnumOptIts;iteration++)
 	{
 		// solve!
@@ -583,6 +599,14 @@ float FullSystem::optimize(int mnumOptIts)
 		calibLog->flush();
 	}
 
+    if(calibLogK->is_open()) {
+        (*calibLogK) << Hcalib.value_scaled[0] << ","
+                     << Hcalib.value_scaled[1] << ","
+                     << Hcalib.value_scaled[2] << ","
+                     << Hcalib.value_scaled[3] << "\n";
+        calibLogK->flush();
+    }
+
 	{
 		boost::unique_lock<boost::mutex> crlock(shellPoseMutex);
 		for(FrameHessian* fh : frameHessians)
@@ -666,8 +690,11 @@ std::vector<VecX> FullSystem::getNullspaces(
 	nullspaces_affA.clear();
 	nullspaces_affB.clear();
 
-
+#if USE_CPARS
 	int n=CPARS+frameHessians.size()*8;
+#else
+    int n=frameHessians.size()*8;
+#endif
 	std::vector<VecX> nullspaces_x0_pre;
 	for(int i=0;i<6;i++)
 	{
@@ -675,9 +702,15 @@ std::vector<VecX> FullSystem::getNullspaces(
 		nullspace_x0.setZero();
 		for(FrameHessian* fh : frameHessians)
 		{
+#if USE_CPARS
 			nullspace_x0.segment<6>(CPARS+fh->idx*8) = fh->nullspaces_pose.col(i);
 			nullspace_x0.segment<3>(CPARS+fh->idx*8) *= SCALE_XI_TRANS_INVERSE;
 			nullspace_x0.segment<3>(CPARS+fh->idx*8+3) *= SCALE_XI_ROT_INVERSE;
+#else
+            nullspace_x0.segment<6>(fh->idx*8) = fh->nullspaces_pose.col(i);
+            nullspace_x0.segment<3>(fh->idx*8) *= SCALE_XI_TRANS_INVERSE;
+            nullspace_x0.segment<3>(fh->idx*8+3) *= SCALE_XI_ROT_INVERSE;
+#endif
 		}
 		nullspaces_x0_pre.push_back(nullspace_x0);
 		nullspaces_pose.push_back(nullspace_x0);
@@ -688,9 +721,15 @@ std::vector<VecX> FullSystem::getNullspaces(
 		nullspace_x0.setZero();
 		for(FrameHessian* fh : frameHessians)
 		{
+#if USE_CPARS
 			nullspace_x0.segment<2>(CPARS+fh->idx*8+6) = fh->nullspaces_affine.col(i).head<2>();
 			nullspace_x0[CPARS+fh->idx*8+6] *= SCALE_A_INVERSE;
 			nullspace_x0[CPARS+fh->idx*8+7] *= SCALE_B_INVERSE;
+#else
+            nullspace_x0.segment<2>(fh->idx*8+6) = fh->nullspaces_affine.col(i).head<2>();
+            nullspace_x0[fh->idx*8+6] *= SCALE_A_INVERSE;
+            nullspace_x0[fh->idx*8+7] *= SCALE_B_INVERSE;
+#endif
 		}
 		nullspaces_x0_pre.push_back(nullspace_x0);
 		if(i==0) nullspaces_affA.push_back(nullspace_x0);
@@ -701,9 +740,15 @@ std::vector<VecX> FullSystem::getNullspaces(
 	nullspace_x0.setZero();
 	for(FrameHessian* fh : frameHessians)
 	{
+#if USE_CPARS
 		nullspace_x0.segment<6>(CPARS+fh->idx*8) = fh->nullspaces_scale;
 		nullspace_x0.segment<3>(CPARS+fh->idx*8) *= SCALE_XI_TRANS_INVERSE;
 		nullspace_x0.segment<3>(CPARS+fh->idx*8+3) *= SCALE_XI_ROT_INVERSE;
+#else
+        nullspace_x0.segment<6>(fh->idx*8) = fh->nullspaces_scale;
+        nullspace_x0.segment<3>(fh->idx*8) *= SCALE_XI_TRANS_INVERSE;
+        nullspace_x0.segment<3>(fh->idx*8+3) *= SCALE_XI_ROT_INVERSE;
+#endif
 	}
 	nullspaces_x0_pre.push_back(nullspace_x0);
 	nullspaces_scale.push_back(nullspace_x0);

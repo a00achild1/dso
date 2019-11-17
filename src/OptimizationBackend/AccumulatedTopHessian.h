@@ -98,8 +98,13 @@ public:
 			for(int i=0;i<NUM_THREADS;i++)
 			{
 				assert(nframes[0] == nframes[i]);
+#if USE_CPARS
 				Hs[i] = MatXX::Zero(nframes[0]*8+CPARS, nframes[0]*8+CPARS);
 				bs[i] = VecX::Zero(nframes[0]*8+CPARS);
+#else
+                Hs[i] = MatXX::Zero(nframes[0]*8, nframes[0]*8);
+                bs[i] = VecX::Zero(nframes[0]*8);
+#endif
 			}
 
 			red->reduce(boost::bind(&AccumulatedTopHessianSSE::stitchDoubleInternal,
@@ -118,14 +123,20 @@ public:
 		}
 		else
 		{
+#if USE_CPARS
 			H = MatXX::Zero(nframes[0]*8+CPARS, nframes[0]*8+CPARS);
 			b = VecX::Zero(nframes[0]*8+CPARS);
+#else
+            H = MatXX::Zero(nframes[0]*8, nframes[0]*8);
+            b = VecX::Zero(nframes[0]*8);
+#endif
 			stitchDoubleInternal(&H, &b, EF, usePrior,0,nframes[0]*nframes[0],0,-1);
 		}
 
 		// make diagonal by copying over parts.
 		for(int h=0;h<nframes[0];h++)
 		{
+#if USE_CPARS
 			int hIdx = CPARS+h*8;
 			H.block<CPARS,8>(0,hIdx).noalias() = H.block<8,CPARS>(hIdx,0).transpose();
 
@@ -135,6 +146,17 @@ public:
 				H.block<8,8>(hIdx, tIdx).noalias() += H.block<8,8>(tIdx, hIdx).transpose();
 				H.block<8,8>(tIdx, hIdx).noalias() = H.block<8,8>(hIdx, tIdx).transpose();
 			}
+#else
+            int hIdx = h*8;
+//            H.block<CPARS,8>(0,hIdx).noalias() = H.block<8,CPARS>(hIdx,0).transpose();
+
+            for(int t=h+1;t<nframes[0];t++)
+            {
+                int tIdx = t*8;
+                H.block<8,8>(hIdx, tIdx).noalias() += H.block<8,8>(tIdx, hIdx).transpose();
+                H.block<8,8>(tIdx, hIdx).noalias() = H.block<8,8>(hIdx, tIdx).transpose();
+            }
+#endif
 		}
 	}
 

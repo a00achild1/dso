@@ -114,7 +114,7 @@ void settingsDefault(int preset)
 		setting_maxOptIterations=6;
 		setting_minOptIterations=1;
 
-		setting_logStuff = false;
+        setting_logStuff = true;
 	}
 
 	if(preset == 2 || preset == 3)

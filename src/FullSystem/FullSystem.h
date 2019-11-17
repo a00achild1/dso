@@ -223,6 +223,7 @@ private:
 	void printEvalLine();
 	void printEigenValLine();
 	std::ofstream* calibLog;
+    std::ofstream* calibLogK;
 	std::ofstream* numsLog;
 	std::ofstream* errorsLog;
 	std::ofstream* eigenAllLog;

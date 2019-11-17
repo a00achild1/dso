@@ -262,11 +262,18 @@ void EnergyFunctional::accumulateSCF_MT(MatXX &H, VecX &b, bool MT)
 
 void EnergyFunctional::resubstituteF_MT(VecX x, CalibHessian* HCalib, bool MT)
 {
+#if USE_CPARS
 	assert(x.size() == CPARS+nFrames*8);
+#else
+    assert(x.size() == nFrames*8);
+#endif
 
 	VecXf xF = x.cast<float>();
+#if USE_CPARS
 	HCalib->step = - x.head<CPARS>();
+#endif
 
+#if USE_CPARS
 	Mat18f* xAd = new Mat18f[nFrames*nFrames];
 	VecCf cstep = xF.head<CPARS>();
 	for(EFFrame* h : frames)
@@ -284,10 +291,29 @@ void EnergyFunctional::resubstituteF_MT(VecX x, CalibHessian* HCalib, bool MT)
 						this, cstep, xAd,  _1, _2, _3, _4), 0, allPoints.size(), 50);
 	else
 		resubstituteFPt(cstep, xAd, 0, allPoints.size(), 0,0);
+#else
+    Mat18f* xAd = new Mat18f[nFrames*nFrames];
+    for(EFFrame* h : frames)
+    {
+        h->data->step.head<8>() = - x.segment<8>(8*h->idx);
+        h->data->step.tail<2>().setZero();
+
+        for(EFFrame* t : frames)
+            xAd[nFrames*h->idx + t->idx] = xF.segment<8>(8*h->idx).transpose() *   adHostF[h->idx+nFrames*t->idx]
+                        + xF.segment<8>(8*t->idx).transpose() * adTargetF[h->idx+nFrames*t->idx];
+    }
+
+    if(MT)
+        red->reduce(boost::bind(&EnergyFunctional::resubstituteFPt,
+                        this, xAd,  _1, _2, _3, _4), 0, allPoints.size(), 50);
+    else
+        resubstituteFPt(xAd, 0, allPoints.size(), 0,0);
+#endif
 
 	delete[] xAd;
 }
 
+#if USE_CPARS
 void EnergyFunctional::resubstituteFPt(
         const VecCf &xc, Mat18f* xAd, int min, int max, Vec10* stats, int tid)
 {
@@ -315,6 +341,35 @@ void EnergyFunctional::resubstituteFPt(
 		assert(std::isfinite(p->data->step));
 	}
 }
+#else
+void EnergyFunctional::resubstituteFPt(
+        Mat18f* xAd, int min, int max, Vec10* stats, int tid)
+{
+    for(int k=min;k<max;k++)
+    {
+        EFPoint* p = allPoints[k];
+
+        int ngoodres = 0;
+        for(EFResidual* r : p->residualsAll)
+            if(r->isActive()) ngoodres++;
+        if(ngoodres==0)
+        {
+            p->data->step = 0;
+            continue;
+        }
+        float b = p->bdSumF;
+
+        for(EFResidual* r : p->residualsAll)
+        {
+            if(!r->isActive()) continue;
+            b -= xAd[r->hostIDX*nFrames + r->targetIDX] * r->JpJdF;
+        }
+
+        p->data->step = - b*p->HdiF;
+        assert(std::isfinite(p->data->step));
+    }
+}
+#endif
 
 
 double EnergyFunctional::calcMEnergyF()
@@ -435,9 +490,14 @@ EFFrame* EnergyFunctional::insertFrame(FrameHessian* fh, CalibHessian* Hcalib)
 	nFrames++;
 	fh->efFrame = eff;
 
+#if USE_CPARS
 	assert(HM.cols() == 8*nFrames+CPARS-8);
 	bM.conservativeResize(8*nFrames+CPARS);
 	HM.conservativeResize(8*nFrames+CPARS,8*nFrames+CPARS);
+#else
+    bM.conservativeResize(8*nFrames);
+    HM.conservativeResize(8*nFrames,8*nFrames);
+#endif
 	bM.tail<8>().setZero();
 	HM.rightCols<8>().setZero();
 	HM.bottomRows<8>().setZero();
@@ -503,8 +563,13 @@ void EnergyFunctional::marginalizeFrame(EFFrame* fh)
 	assert(EFIndicesValid);
 
 	assert((int)fh->points.size()==0);
+#if USE_CPARS
 	int ndim = nFrames*8+CPARS-8;// new dimension
 	int odim = nFrames*8+CPARS;// old dimension
+#else
+    int ndim = nFrames*8-8;// new dimension
+    int odim = nFrames*8;// old dimension
+#endif
 
 
 //	VecX eigenvaluesPre = HM.eigenvalues().real();
@@ -515,9 +580,15 @@ void EnergyFunctional::marginalizeFrame(EFFrame* fh)
 
 	if((int)fh->idx != (int)frames.size()-1)
 	{
+#if USE_CPARS
 		int io = fh->idx*8+CPARS;	// index of frame to move to end
 		int ntail = 8*(nFrames-fh->idx-1);
 		assert((io+8+ntail) == nFrames*8+CPARS);
+#else
+        int io = fh->idx*8;	// index of frame to move to end
+        int ntail = 8*(nFrames-fh->idx-1);
+        assert((io+8+ntail) == nFrames*8);
+#endif
 
 		Vec8 bTmp = bM.segment<8>(io);
 		VecX tailTMP = bM.tail(ntail);
@@ -585,10 +656,17 @@ void EnergyFunctional::marginalizeFrame(EFFrame* fh)
 	nFrames--;
 	fh->data->efFrame=0;
 
+#if USE_CPARS
 	assert((int)frames.size()*8+CPARS == (int)HM.rows());
 	assert((int)frames.size()*8+CPARS == (int)HM.cols());
 	assert((int)frames.size()*8+CPARS == (int)bM.size());
 	assert((int)frames.size() == (int)nFrames);
+#else
+    assert((int)frames.size()*8 == (int)HM.rows());
+    assert((int)frames.size()*8 == (int)HM.cols());
+    assert((int)frames.size()*8 == (int)bM.size());
+    assert((int)frames.size() == (int)nFrames);
+#endif
 
 
 
@@ -845,7 +923,11 @@ void EnergyFunctional::solveSystemF(int iteration, double lambda, CalibHessian* 
 		lastHS = HFinal_top - H_sc;
 		lastbS = bFinal_top;
 
+#if USE_CPARS
 		for(int i=0;i<8*nFrames+CPARS;i++) HFinal_top(i,i) *= (1+lambda);
+#else
+        for(int i=0;i<8*nFrames;i++) HFinal_top(i,i) *= (1+lambda);
+#endif
 		HFinal_top -= H_sc * (1.0f/(1+lambda));
 	}
 
@@ -936,8 +1018,14 @@ void EnergyFunctional::makeIDX()
 
 VecX EnergyFunctional::getStitchedDeltaF() const
 {
+#if USE_CPARS
 	VecX d = VecX(CPARS+nFrames*8); d.head<CPARS>() = cDeltaF.cast<double>();
 	for(int h=0;h<nFrames;h++) d.segment<8>(CPARS+8*h) = frames[h]->delta;
+#else
+    VecX d = VecX(nFrames*8);
+    for(int h=0;h<nFrames;h++)
+        d.segment<8>(8*h) = frames[h]->delta;
+#endif
 	return d;
 }
 

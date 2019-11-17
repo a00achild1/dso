@@ -100,8 +100,13 @@ public:
 			for(int i=0;i<NUM_THREADS;i++)
 			{
 				assert(nframes[0] == nframes[i]);
+#if USE_CPARS
 				Hs[i] = MatXX::Zero(nframes[0]*8+CPARS, nframes[0]*8+CPARS);
 				bs[i] = VecX::Zero(nframes[0]*8+CPARS);
+#else
+                Hs[i] = MatXX::Zero(nframes[0]*8, nframes[0]*8);
+                bs[i] = VecX::Zero(nframes[0]*8);
+#endif
 			}
 
 			red->reduce(boost::bind(&AccumulatedSCHessianSSE::stitchDoubleInternal,
@@ -119,17 +124,24 @@ public:
 		}
 		else
 		{
+#if USE_CPARS
 			H = MatXX::Zero(nframes[0]*8+CPARS, nframes[0]*8+CPARS);
 			b = VecX::Zero(nframes[0]*8+CPARS);
+#else
+            H = MatXX::Zero(nframes[0]*8, nframes[0]*8);
+            b = VecX::Zero(nframes[0]*8);
+#endif
 			stitchDoubleInternal(&H, &b, EF,0,nframes[0]*nframes[0],0,-1);
 		}
 
+#if USE_CPARS
 		// make diagonal by copying over parts.
 		for(int h=0;h<nframes[0];h++)
 		{
 			int hIdx = CPARS+h*8;
 			H.block<CPARS,8>(0,hIdx).noalias() = H.block<8,CPARS>(hIdx,0).transpose();
 		}
+#endif
 	}
 
 
